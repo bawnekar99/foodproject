@@ -35,18 +35,30 @@ def get_tokens_for_user(user):
     }
 
 class SendUserOTPView(APIView):
-    permission_classes = [AllowAny]  # 👈 This allows public access
+    permission_classes = [AllowAny]
 
     def post(self, request):
         serializer = UserOTPSerializer(data=request.data)
         if serializer.is_valid():
             phone = serializer.validated_data['phone']
             otp = str(random.randint(100000, 999999))
-            user, created = User.objects.get_or_create(phone=phone, defaults={'is_vendor': False})
-            user.otp = otp
-            user.save()
-            print(f"[User OTP] {phone}: {otp}")
-            return Response({"message": "OTP sent"}, status=status.HTTP_200_OK)
+
+            try:
+                user, created = User.objects.get_or_create(phone=phone, defaults={
+                    'is_vendor': False,
+                    'username': phone  # required since username is unique in AbstractUser
+                })
+                user.otp = otp
+                user.save()
+
+                print(f"[User OTP] {phone} -> {otp}")
+                return Response({"message": "OTP sent successfully"}, status=status.HTTP_200_OK)
+
+            except Exception as e:
+                print("Database error:", str(e))
+                traceback.print_exc()
+                return Response({"message": "Database error", "error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class VerifyUserOTPView(APIView):

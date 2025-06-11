@@ -9,6 +9,8 @@ urlpatterns = [
     path('reviews/', include('reviews.urls')),
     path('users/', include('users.urls')),
     path('orders/', include('order.urls')),
+    path('servers/', include('server.urls')),
+
     # Add other app urls here
 ]
 
