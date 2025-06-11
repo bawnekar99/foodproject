@@ -1,15 +1,1 @@
-asgiref
-Django==3.2.25
-django-cors-headers<4.0
-djangorestframework
-djangorestframework-simplejwt
-djongo==1.3.6
-dnspython
-pillow
-PyJWT
-pymongo
-pytz
-sqlparse==0.2.4
-tzdata
-whitenoise
-gunicorn
+ÿþ
