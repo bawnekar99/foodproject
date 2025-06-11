@@ -36,11 +36,7 @@ else:
 
 
 
-
-# SECURITY WARNING: don't run with debug turned on in production!
-
-
-
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
 
