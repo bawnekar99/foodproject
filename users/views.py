@@ -76,11 +76,7 @@ class SendUserOTPView(APIView):
             user.save()
             
             # Send SMS
-            success, sms_response = send_sms(
-                to=phone,
-                var1=otp,
-                var2="5 minutes"
-            )
+            success, message = send_sms(phone=phone, otp=otp)
             
             if not success:
                 logger.error(f"SMS Failed: {sms_response}")
