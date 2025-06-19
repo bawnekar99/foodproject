@@ -59,11 +59,8 @@ class SendUserOTPView(APIView):
             )
 
         try:
-            # Generate 6-digit OTP
+            # Generate OTP
             otp = str(random.randint(100000, 999999))
-            
-            # Debug print before sending SMS
-            print(f"DEBUG - OTP {otp} generated for {phone}")
             
             # Get or create user
             user, created = User.objects.get_or_create(
@@ -74,28 +71,24 @@ class SendUserOTPView(APIView):
                 }
             )
             
-            # Update OTP
+            # Save OTP
             user.otp = otp
             user.save()
             
-            # Call send_sms function and get response
-            success, response_text = send_sms(
+            # Send SMS
+            success, sms_response = send_sms(
                 to=phone,
                 var1=otp,
                 var2="5 minutes"
             )
             
-            # Print SMS API response for debugging
-            print(f"SMS API Response: {response_text}")
-            logger.info(f"SMS API Response: {response_text}")
-            
             if not success:
-                logger.error(f"SMS failed to {phone}: {response_text}")
-                return Response({
-                    "message": "Failed to send OTP",
-                    "error": response_text
-                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+                logger.error(f"SMS Failed: {sms_response}")
+                return Response(
+                    {"error": sms_response},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+            
             return Response(
                 {
                     "status": "success",
@@ -115,11 +108,12 @@ class SendUserOTPView(APIView):
             )
             
         except Exception as e:
-            logger.error(f"OTP Error: {str(e)}", exc_info=True)
+            logger.error(f"OTP Error: {str(e)}")
             return Response(
                 {"error": "Internal server error"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
 
 
 class VerifyUserOTPView(APIView):
