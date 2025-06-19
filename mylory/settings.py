@@ -82,6 +82,9 @@ REST_FRAMEWORK = {
     #    'DEFAULT_PERMISSION_CLASSES': (
     #     'rest_framework.permissions.IsAuthenticated',
     # ),
+    'DEFAULT_THROTTLE_RATES': {
+        'otp': '3/hour'  # Allow 3 OTP requests per hour per phone
+    }
 }
 
 
