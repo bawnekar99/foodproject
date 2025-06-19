@@ -2,12 +2,12 @@ Django==3.2
 djongo==1.3.6
 pymongo==3.12.0
 sqlparse==0.4.1
-asgiref
-djangorestframework
-djangorestframework_simplejwt
+asgiref==3.3.4
+djangorestframework==3.12.4
+djangorestframework_simplejwt==4.8.0
 gunicorn
 packaging
-PyJWT
+PyJWT==2.1.0
 python-dotenv
 pytz
 tzdata
