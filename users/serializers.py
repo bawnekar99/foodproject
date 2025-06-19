@@ -37,6 +37,12 @@ class FlexibleFloatField(serializers.FloatField):
 class UserOTPSerializer(serializers.Serializer):
     phone = serializers.CharField(max_length=15)
 
+    def validate_phone(self, value):
+        # Add any phone number validation here
+        if not value.isdigit():
+            raise serializers.ValidationError("Phone number must contain only digits")
+        return value
+
 class UserOTPVerifySerializer(serializers.Serializer):
     phone = serializers.CharField(max_length=15)
     otp = serializers.CharField(max_length=6)
