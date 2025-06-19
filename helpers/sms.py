@@ -1,39 +1,31 @@
-# helpers/sms.py
-from django.conf import settings
+# helpers/sms.py को यूँ अपडेट करें
 import requests
-import json
+from django.conf import settings
 import logging
 
 logger = logging.getLogger(__name__)
 
-def send_sms(to, var1, var2):
+def send_sms(phone, otp):
     try:
-        api_link = settings.SMS_API_LINK
-        api_key = settings.SMS_API_KEY
+        response = requests.post(
+            settings.SMS_API_LINK,
+            data={
+                'module': 'TRANS_SMS',
+                'apikey': settings.SMS_API_KEY,
+                'to': phone,
+                'from': 'YOURID',
+                'templatename': 'OTP',
+                'var1': otp,
+                'var2': '5 mins'
+            },
+            timeout=10
+        )
         
-        payload = {
-            'module': 'TRANS_SMS',
-            'apikey': api_key,
-            'to': to,
-            'from': 'FEMIRI',  # Your sender ID
-            'templatename': 'OTP',  # Your template name
-            'var1': var1,  # Usually the OTP
-            'var2': var2   # Usually the validity time
-        }
+        logger.info(f"SMS API Response: {response.text}")
+        return True, "OTP sent"
         
-        headers = {'Content-Type': 'application/x-www-form-urlencoded'}
-        
-        response = requests.post(api_link, data=payload, headers=headers, verify=False)
-        response_data = response.json()
-        
-        if response_data.get('Status') == 'Success':
-            return True, response_data.get('Details', '')
-        else:
-            logger.error(f"SMS sending failed: {response_data.get('Message', 'Unknown error')}")
-            return False, response_data.get('Message', 'Unknown error')
-            
     except Exception as e:
-        logger.error(f"Error in send_sms: {str(e)}")
+        logger.error(f"SMS Error: {str(e)}")
         return False, str(e)
 
 
