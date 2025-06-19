@@ -62,6 +62,9 @@ class SendUserOTPView(APIView):
             # Generate 6-digit OTP
             otp = str(random.randint(100000, 999999))
             
+            # Debug print before sending SMS
+            print(f"DEBUG - OTP {otp} generated for {phone}")
+            
             # Get or create user
             user, created = User.objects.get_or_create(
                 phone=phone,
@@ -75,9 +78,24 @@ class SendUserOTPView(APIView):
             user.otp = otp
             user.save()
             
-            # Here you would call your send_sms function
-            logger.info(f"OTP {otp} generated for {phone}")
+            # Call send_sms function and get response
+            success, response_text = send_sms(
+                to=phone,
+                var1=otp,
+                var2="5 minutes"
+            )
             
+            # Print SMS API response for debugging
+            print(f"SMS API Response: {response_text}")
+            logger.info(f"SMS API Response: {response_text}")
+            
+            if not success:
+                logger.error(f"SMS failed to {phone}: {response_text}")
+                return Response({
+                    "message": "Failed to send OTP",
+                    "error": response_text
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
             return Response(
                 {
                     "status": "success",
