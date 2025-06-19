@@ -6,6 +6,7 @@ from rest_framework import status
 from .models import User
 from bson import ObjectId
 import random
+import hashlib
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.utils import timezone 
 from .models import Restaurant, User, RestaurantImage
@@ -16,15 +17,20 @@ from django.shortcuts import get_object_or_404
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from .serializers import (
     UserOTPSerializer, UserOTPVerifySerializer, UserLocationSerializer, 
-    UserProfileUpdateSerializer, RestaurantSerializer,
-    RestaurantImageSerializer, RestaurantCreateSerializer
+    UserProfileUpdateSerializerSimple, RestaurantSerializer,
+    RestaurantImageSerializer, RestaurantCreateSerializer 
 )
+from django.http import HttpResponse
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.utils import timezone 
 from rest_framework.parsers import MultiPartParser, FormParser
 from decimal import Decimal, InvalidOperation
 from django.shortcuts import get_object_or_404
+from helpers.sms import send_sms
+from django.http import JsonResponse
+import json
 import logging
+
 logger = logging.getLogger(__name__)
 
 def get_tokens_for_user(user):
@@ -60,6 +66,8 @@ class SendUserOTPView(APIView):
                 return Response({"message": "Database error", "error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
 
 class VerifyUserOTPView(APIView):
     permission_classes = [AllowAny]
@@ -117,17 +125,125 @@ class UpdateUserProfile(APIView):
             return Response({"message": "Profile updated", "user": serializer.data}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
                                                  
+class ObjectIdJSONEncoder(json.JSONEncoder):
+    """Custom JSON encoder jo ObjectId ko string me convert karta hai"""
+    def default(self, obj):
+        if isinstance(obj, ObjectId):
+            return str(obj)  # ObjectId ko string banao
+        return super().default(obj)
 
 
+logger = logging.getLogger(__name__)
+
+class UserListViewWithCustomEncoder(APIView):
+    def get(self, request):
+        try:
+            users = User.objects.all()
+            logger.debug(f"Total users fetched: {users.count()}")
+
+            # Filter only users with valid IDs (avoid unhashable error)
+            valid_users = [user for user in users if user.id]
+
+            logger.debug(f"Users with valid IDs: {len(valid_users)}")
+            
+            serializer = UserProfileUpdateSerializerSimple(valid_users, many=True)
+            logger.debug(f"Serialized users data: {serializer.data}")
+            
+            # Use custom JSON encoder to handle ObjectId, etc.
+            json_data = json.dumps(serializer.data, cls=ObjectIdJSONEncoder)
+            return HttpResponse(json_data, content_type='application/json', status=200)
+                         
+        except Exception as e:
+            logger.error(f"Error fetching users: {str(e)}")
+            return Response({
+                "error": f"Server error: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+class UserDetailViewWithCustomEncoder(APIView):
+    def get(self, request, user_id):
+        try:
+            logger.info(f"Received user_id: {user_id}, type: {type(user_id)}")
+
+            user_id_str = str(user_id).strip()
+            if len(user_id_str) != 24 or not all(c in '0123456789abcdef' for c in user_id_str.lower()):
+                logger.error(f"Invalid ObjectId format: {user_id_str}")
+                return Response({
+                    "error": "Invalid user ID format (ObjectId must be 24 hexadecimal characters)"
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            ObjectId(user_id_str)
+            logger.info(f"Validated ObjectId-like string: {user_id_str}")
+
+            # Fetch only IDs first (avoids model instance hashing issues)
+            user_ids = User.objects.values_list('id', flat=True)
+            
+            for user_id_db in user_ids:
+                hash_object = hashlib.md5(str(user_id_db).encode())
+                pseudo_object_id = hash_object.hexdigest()[:24]
+                if pseudo_object_id == user_id_str:
+                    # Fetch full user only if match found
+                    user = User.objects.get(pk=user_id_db)
+                    logger.info(f"✓ User found with _id: {user_id_str}, corresponding id: {user.id}")
+                    serializer = UserProfileUpdateSerializerSimple(user)
+                    return Response(serializer.data, status=status.HTTP_200_OK)
+
+            # Return "Not Found" only after checking ALL users
+            logger.error(f"User not found with _id: {user_id_str}")
+            return Response({
+                "error": "User not found",
+                "searched_id": user_id_str
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        except Exception as e:
+            logger.error(f"Unexpected error fetching user {user_id}: {str(e)}")
+            return Response({
+                "error": f"Server error: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def delete(self, request, user_id):
+        try:
+            logger.info(f"Received user_id for deletion: {user_id}, type: {type(user_id)}")
+
+            user_id_str = str(user_id).strip()
+            if len(user_id_str) != 24 or not all(c in '0123456789abcdef' for c in user_id_str.lower()):
+                logger.error(f"Invalid ObjectId format: {user_id_str}")
+                return Response({
+                    "error": "Invalid user ID format (ObjectId must be 24 hexadecimal characters)"
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            ObjectId(user_id_str)
+            logger.info(f"Validated ObjectId-like string for deletion: {user_id_str}")
+
+            # Fetch only IDs first (avoids model instance hashing issues)
+            user_ids = User.objects.values_list('id', flat=True)
+            
+            for user_id_db in user_ids:
+                hash_object = hashlib.md5(str(user_id_db).encode())
+                pseudo_object_id = hash_object.hexdigest()[:24]
+                if pseudo_object_id == user_id_str:
+                    # Found matching user, now delete
+                    user = User.objects.get(pk=user_id_db)
+                    user.delete()
+                    logger.info(f"✓ User deleted with _id: {user_id_str}")
+                    return Response({
+                        "message": "User deleted successfully"
+                    }, status=status.HTTP_200_OK)
+
+            # Return "Not Found" only after checking ALL users
+            logger.error(f"User not found for deletion with _id: {user_id_str}")
+            return Response({
+                "error": "User not found",
+                "searched_id": user_id_str
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        except Exception as e:
+            logger.error(f"Unexpected error deleting user {user_id}: {str(e)}")
+            return Response({
+                "error": f"Server error: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-
-
-# Keep all existing user-related views
-
-# Updated Restaurant Views
 class SendRestaurantOTPView(APIView):
     permission_classes = [AllowAny]
 
@@ -361,93 +477,128 @@ class RestaurantView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-class RestaurantDetailView(APIView):
-    permission_classes = [AllowAny]
 
-    def get(self, request, restaurant_id=None):
-        """Get restaurant details by ID or list all restaurants"""
+
+
+
+from rest_framework.views import APIView
+from rest_framework import permissions, status
+from rest_framework.response import Response
+from bson.objectid import ObjectId, InvalidId
+from .models import Restaurant
+from .serializers import RestaurantSerializer
+import traceback
+import logging
+
+logger = logging.getLogger(__name__)
+class RestaurantDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, restaurant_id=None, *args, **kwargs):
+        """Get restaurant details or list of restaurants"""
         try:
+            restaurant_id = restaurant_id or kwargs.get("restaurant_id")
+
             if restaurant_id:
+                # Get single restaurant
                 try:
-                    restaurant = Restaurant.objects.filter(_id=ObjectId(restaurant_id)).first()
-                except Exception as e:
-                    return Response({"error": "Invalid restaurant ID"}, status=status.HTTP_400_BAD_REQUEST)
+                    object_id = ObjectId(restaurant_id)
+                except (InvalidId, ValueError, TypeError) as e:
+                    logger.error(f"Invalid restaurant ID format: {restaurant_id}, Error: {str(e)}")
+                    return Response(
+                        {"error": "Invalid restaurant ID format"}, 
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                restaurant = Restaurant.objects.filter(id=object_id).first()
                 if not restaurant:
-                    return Response({"error": "Restaurant not found"}, status=status.HTTP_404_NOT_FOUND)
+                    return Response(
+                        {"error": "Restaurant not found"}, 
+                        status=status.HTTP_404_NOT_FOUND
+                    )
+
+                logger.debug(f"Found restaurant: {restaurant.id}")
+                serializer = RestaurantSerializer(restaurant, context={"request": request})
+                response_data = serializer.data
+                logger.debug(f"Serializer response data: {response_data}")
                 
-                serializer = RestaurantSerializer(restaurant)
-                return Response(serializer.data, status=status.HTTP_200_OK)
-            else:
-                restaurants = Restaurant.objects.all()
-                
-                # Apply filters if provided
-                category = request.query_params.get('category')
-                if category:
-                    restaurants = restaurants.filter(category=category)
-                
-                city = request.query_params.get('city')
-                if city:
-                    restaurants = restaurants.filter(city=city)
-                
-                is_verified = request.query_params.get('is_verified')
-                if is_verified is not None:
-                    is_verified_bool = is_verified.lower() == 'true'
-                    restaurants = restaurants.filter(is_verified=is_verified_bool)
-                
-                # Apply pagination
-                page = int(request.query_params.get('page', 1))
-                page_size = int(request.query_params.get('page_size', 10))
-                start = (page - 1) * page_size
-                end = start + page_size
-                
-                paginated_restaurants = restaurants[start:end]
-                
-                serializer = RestaurantSerializer(paginated_restaurants, many=True)
-                
-                return Response({
-                    "count": restaurants.count(),
-                    "next": page + 1 if end < restaurants.count() else None,
-                    "previous": page - 1 if page > 1 else None,
-                    "results": serializer.data
-                }, status=status.HTTP_200_OK)
-        
+                return Response(response_data, status=status.HTTP_200_OK)
+
+            # Get list of restaurants with pagination
+            restaurants = Restaurant.objects.all()
+            page = int(request.query_params.get("page", 1))
+            page_size = int(request.query_params.get("page_size", 10))
+            start = (page - 1) * page_size
+            end = start + page_size
+            paginated_restaurants = restaurants[start:end]
+            total_count = restaurants.count()
+
+            serializer = RestaurantSerializer(
+                paginated_restaurants, 
+                many=True, 
+                context={"request": request}
+            )
+            
+            response_data = {
+                "count": total_count,
+                "next": page + 1 if end < total_count else None,
+                "previous": page - 1 if page > 1 else None,
+                "results": serializer.data
+            }
+            
+            logger.debug(f"Paginated response data: {response_data}")
+            return Response(response_data, status=status.HTTP_200_OK)
+
         except Exception as e:
-            print(f"[ERROR] Error fetching restaurant(s): {str(e)}")
-            print(traceback.format_exc())
+            logger.error(f"Error fetching restaurant(s): {str(e)}\n{traceback.format_exc()}")
             return Response(
-                {"error": f"Server error while fetching restaurant data: {str(e)}"},
+                {"error": f"Server error: {str(e)}"}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
     def delete(self, request, restaurant_id):
-        """Delete a restaurant by ID"""
+        """Delete a restaurant"""
         try:
             if not request.user.is_authenticated:
-                return Response({"error": "Authentication required"}, status=status.HTTP_401_UNAUTHORIZED)
-            
+                return Response(
+                    {"error": "Authentication required"}, 
+                    status=status.HTTP_401_UNAUTHORIZED
+                )
+
             try:
-                restaurant = Restaurant.objects.filter(_id=ObjectId(restaurant_id)).first()
-            except Exception as e:
-                return Response({"error": "Invalid restaurant ID"}, status=status.HTTP_400_BAD_REQUEST)
-            
+                object_id = ObjectId(restaurant_id)
+            except Exception:
+                return Response(
+                    {"error": "Invalid restaurant ID"}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            restaurant = Restaurant.objects.filter(id=object_id).first()
             if not restaurant:
-                return Response({"error": "Restaurant not found"}, status=status.HTTP_404_NOT_FOUND)
-            
+                return Response(
+                    {"error": "Restaurant not found"}, 
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            # Check permissions
             if restaurant.user != request.user and not request.user.is_staff:
-                return Response({"error": "You don't have permission to delete this restaurant"}, 
-                                status=status.HTTP_403_FORBIDDEN)
-            
+                return Response(
+                    {"error": "You don't have permission to delete this restaurant"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
             restaurant.delete()
-            return Response({"message": "Restaurant deleted successfully"}, status=status.HTTP_200_OK)
-        
-        except Exception as e:
-            print(f"[ERROR] Error deleting restaurant: {str(e)}")
-            print(traceback.format_exc())
             return Response(
-                {"error": f"Server error while deleting restaurant: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {"message": "Restaurant deleted successfully"}, 
+                status=status.HTTP_200_OK
             )
 
+        except Exception as e:
+            logger.error(f"Error deleting restaurant {restaurant_id}: {str(e)}\n{traceback.format_exc()}")
+            return Response(
+                {"error": f"Server error: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class UploadRestaurantImagesView(APIView):
     permission_classes = [permissions.IsAuthenticated]

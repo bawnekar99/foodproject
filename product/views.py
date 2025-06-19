@@ -13,17 +13,22 @@ from rest_framework.permissions import IsAuthenticated
 # Category CRUD
 class CategoryListCreate(APIView):
     permission_classes = [permissions.IsAuthenticated]
+
     def get(self, request):
-        categories = Category.objects.all()
-        serializer = CategorySerializer(categories, many=True)
-        return Response(serializer.data)
+       categories = Category.objects.all()
+       serializer = CategorySerializer(categories, many=True, context={"request": request})
+       print("==== DEBUG RESPONSE ====")
+       print(serializer.data)  # ← यहाँ से देखो क्या print हो रहा
+       return Response(serializer.data)
+
 
     def post(self, request):
-        serializer = CategorySerializer(data=request.data)
+        serializer = CategorySerializer(data=request.data, context={"request": request})
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 
 class CategoryDetail(APIView):
@@ -82,38 +87,94 @@ class UploadCategoryImagesView(APIView):
             CategoryImage.objects.create(category=category, image=image)
 
         return Response({"message": "Images uploaded successfully"}, status=201)
-# Product CRUD
+
+
 class ProductListCreate(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        products = Product.objects.all()
-        serializer = ProductSerializer(products, many=True, context={"request": request})
-        return Response(serializer.data)
+        # Filter products by user's restaurants
+        try:
+            user_restaurants = Restaurant.objects.filter(user=request.user)
+            if not user_restaurants.exists():
+                logger.warning(f"No restaurants found for user {request.user.id}")
+                return Response({"error": "No restaurants found for this user"}, status=status.HTTP_404_NOT_FOUND)
+
+            products = Product.objects.filter(restaurant__in=user_restaurants)
+            serializer = ProductSerializer(products, many=True, context={"request": request})
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"Error fetching products: {str(e)}")
+            return Response({"error": f"Server error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def post(self, request):
-        print("🔍 Authenticated user:", request.user)
-        print("🔍 User ID:", request.user.id)
-        print("📱 User phone from request.user.phone:", getattr(request.user, 'phone', None))
+        data = request.data.copy()
+
+        # Validate restaurant ID
+        restaurant_id = data.get('restaurant')
+        if not restaurant_id:
+            return Response({"error": "Restaurant ID is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-         restaurant = Restaurant.objects.get(user_id=request.user.id)
+            # Validate ObjectId format
+            restaurant_object_id = ObjectId(restaurant_id)
+        except Exception as e:
+            logger.error(f"Invalid restaurant ID format: {restaurant_id}, Error: {str(e)}")
+            return Response({"error": "Invalid restaurant ID format"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # Check if restaurant exists and belongs to the current user
+            restaurant = Restaurant.objects.get(
+                id=restaurant_object_id,
+                user=request.user
+            )
         except Restaurant.DoesNotExist:
-         return Response({"error": "Restaurant not found for this user"}, status=400)
+            logger.warning(f"Restaurant {restaurant_id} not found for user {request.user.id}")
+            return Response({"error": "Restaurant not found for this user"}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Error querying restaurant: {str(e)}")
+            return Response({"error": f"Server error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+        # Validate category ID
+        category_id = data.get('category')
+        if not category_id:
+            return Response({"error": "Category ID is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        data = request.data.copy()
-        data['restaurant'] = str(restaurant._id)
-        print("📌 Restaurant ID being set in data:", data['restaurant'])
+        try:
+            # Validate ObjectId format for category
+            category_object_id = ObjectId(category_id)
+        except Exception as e:
+            logger.error(f"Invalid category ID format: {category_id}, Error: {str(e)}")
+            return Response({"error": "Invalid category ID format"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            category = Category.objects.get(id=category_object_id)
+        except Category.DoesNotExist:
+            logger.warning(f"Category {category_id} not found")
+            return Response({"error": "Category not found with this ID"}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Error querying category: {str(e)}")
+            return Response({"error": f"Server error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # Set actual model instances in the data
+        data['restaurant'] = str(restaurant.id)  # Convert ObjectId to string
+        data['category'] = str(category.id)      # Convert ObjectId to string
 
         serializer = ProductSerializer(data=data, context={"request": request})
         if serializer.is_valid():
-            product = serializer.save()
-            response_serializer = ProductSerializer(product, context={"request": request})
-            return Response(response_serializer.data, status=201)
+            try:
+                product = serializer.save()
+                return Response(
+                    ProductSerializer(product, context={"request": request}).data,
+                    status=status.HTTP_201_CREATED
+                )
+            except Exception as e:
+                logger.error(f"Error saving product: {str(e)}")
+                return Response({"error": f"Failed to save product: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        else:
+            logger.warning(f"Serializer errors: {serializer.errors}")
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        print("❌ Serializer errors:", serializer.errors)
-        return Response(serializer.errors, status=400)
 
 class ProductDetail(APIView):
     permission_classes = [permissions.IsAuthenticated]

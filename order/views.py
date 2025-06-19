@@ -44,6 +44,7 @@ class SendDeliveryBoyOTPView(APIView):
 
         # Here you'd integrate with an actual SMS service
         print(f"OTP for {phone}: {otp}")
+        logger.info(f"OTP sent to delivery boy {phone}: {otp}")
         return Response({'message': 'OTP sent successfully'})
 
 class VerifyDeliveryBoyOTPView(APIView):
@@ -55,56 +56,113 @@ class VerifyDeliveryBoyOTPView(APIView):
             return Response({'error': 'Phone and OTP are required'}, status=400)
 
         try:
+            logger.info(f"Verifying OTP for phone: {phone}, OTP: {otp}")
+            
+            # ✅ DeliveryBoy find karo
             delivery_boy = DeliveryBoy.objects.get(phone=phone, otp=otp)
+            logger.info(f"Found delivery boy: {delivery_boy.id}")
 
+            # ✅ OTP expiry check
             if timezone.now() - delivery_boy.otp_created_at > timedelta(minutes=10):
+                logger.warning(f"OTP expired for phone: {phone}")
                 return Response({'error': 'OTP expired'}, status=400)
 
-            # ✅ User create karo agar assign nahi hai
+            # ✅ User create/assign karo
+            user = None
+            
             if not delivery_boy.user:
+                logger.info(f"No user assigned to delivery boy {phone}, creating/finding user")
                 try:
-                    # Check if a user with the same phone/username exists
-                    user = User.objects.filter(phone=phone).first()
-                    if not user:
+                    # Pehle check karo ki phone se koi user exist karta hai
+                    existing_user = User.objects.filter(phone=phone).first()
+                    
+                    if existing_user:
+                        logger.info(f"Found existing user with phone {phone}: {existing_user.id}")
+                        user = existing_user
+                    else:
+                        logger.info(f"Creating new user for phone {phone}")
+                        # नया user create karo
+                        unique_username = f"delivery_{phone}_{uuid.uuid4().hex[:6]}"
                         user = User.objects.create_user(
                             phone=phone,
-                            username=f"{phone}_{uuid.uuid4().hex[:6]}",  # Ensuring uniqueness
+                            username=unique_username,
                             password='temp@123',
                             is_delivery_boy=True
                         )
+                        logger.info(f"Created new user: {user.id} with username: {unique_username}")
+                    
+                    # DeliveryBoy को user assign karo
                     delivery_boy.user = user
+                    delivery_boy.is_verified = True
                     delivery_boy.save()
+                    logger.info(f"Assigned user {user.id} to delivery boy {delivery_boy.id}")
+                    
                 except DatabaseError as db_err:
-                    print("DB Error Trace:")
-                    print(traceback.format_exc())
+                    logger.error(f"Database error: {str(db_err)}")
+                    logger.error(traceback.format_exc())
                     return Response({
-                        'error': 'Database error while creating user',
-                        'details': str(db_err),
-                        'trace': traceback.format_exc()
+                        'error': 'Database error while creating/assigning user',
+                        'details': str(db_err)
+                    }, status=500)
+                except Exception as user_create_err:
+                    logger.error(f"Error creating/assigning user: {str(user_create_err)}")
+                    logger.error(traceback.format_exc())
+                    return Response({
+                        'error': 'Error while creating/assigning user',
+                        'details': str(user_create_err)
                     }, status=500)
             else:
+                # User already assigned hai
                 user = delivery_boy.user
+                delivery_boy.is_verified = True
+                delivery_boy.save()
+                logger.info(f"User already assigned: {user.id}")
 
-            delivery_boy.is_verified = True
-            delivery_boy.save()
+            # ✅ Final check - make sure user exists
+            if not user:
+                logger.error("User is None after creation/assignment process")
+                return Response({
+                    'error': 'Failed to create or assign user'
+                }, status=500)
 
-            tokens = get_tokens_for_user(user)
-            return Response({'message': 'OTP verified successfully', 'tokens': tokens}, status=200)
+            # ✅ Tokens generate karo
+            try:
+                logger.info(f"Generating tokens for user: {user.id}")
+                tokens = get_tokens_for_user(user)
+                logger.info(f"Tokens generated successfully for user: {user.id}")
+                
+                return Response({
+                    'message': 'OTP verified successfully',
+                    'tokens': tokens,
+                    'user_id': user.id,
+                    'delivery_boy_id': delivery_boy.id
+                }, status=200)
+                
+            except Exception as token_err:
+                logger.error(f"Error generating tokens: {str(token_err)}")
+                logger.error(traceback.format_exc())
+                return Response({
+                    'error': 'Error generating authentication tokens',
+                    'details': str(token_err)
+                }, status=500)
 
         except DeliveryBoy.DoesNotExist:
+            logger.warning(f"Invalid OTP or phone number: {phone}, {otp}")
             return Response({'error': 'Invalid OTP or phone number'}, status=400)
-        except Exception as e:
-            print(traceback.format_exc())
-            return Response({'error': 'Unexpected error', 'details': str(e)}, status=500)  
             
+        except Exception as e:
+            logger.error(f"Unexpected error in OTP verification: {str(e)}")
+            logger.error(traceback.format_exc())
+            return Response({
+                'error': 'Unexpected error occurred',
+                'details': str(e),
+                'trace': traceback.format_exc()
+            }, status=500)
+
 class DeliveryBoyProfileView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def get(self, request):
-        delivery_boy = DeliveryBoy.objects.get(phone=request.user.phone)
-        serializer = DeliveryBoySerializer(delivery_boy)
-        return Response(serializer.data)
-
+   
     def put(self, request):
         delivery_boy = DeliveryBoy.objects.get(phone=request.user.phone)
         serializer = DeliveryBoyProfileUpdateSerializer(delivery_boy, data=request.data, partial=True)
@@ -113,6 +171,13 @@ class DeliveryBoyProfileView(APIView):
             return Response({'message': 'Profile updated successfully', 'data': serializer.data})
         return Response(serializer.errors, status=400)
 
+class DeliveryBoyListView(APIView):
+    permission_classes = [IsAuthenticated]  # You can change this to IsAuthenticated if needed
+
+    def get(self, request):
+        delivery_boys = DeliveryBoy.objects.all()
+        serializer = DeliveryBoySerializer(delivery_boys, many=True)
+        return Response(serializer.data)
 
 
 class DeliveryBoyDetailView(APIView):
@@ -182,13 +247,27 @@ class CreateOrderView(APIView):
 class OrderTrackingView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def get(self, request, order_id):
-        try:
-            order = Order.objects.get(_id=ObjectId(order_id), user=request.user)
-            serializer = OrderSerializer(order)
+    def get(self, request, order_id=None, *args, **kwargs):
+        order_id = order_id or kwargs.get('order_id')
+
+        if order_id:
+            try:
+                order = Order.objects.get(_id=ObjectId(order_id), user=request.user)
+                serializer = OrderSerializer(order)
+                return Response(serializer.data)
+            except Order.DoesNotExist:
+                return Response({'error': 'Order not found'}, status=404)
+            except Exception:
+                return Response({'error': 'Invalid Order ID format'}, status=400)
+        else:
+            # 👇 NO filtering on status, only filter by user
+            orders = Order.objects.filter(user=request.user).order_by('-created_at')
+            serializer = OrderSerializer(orders, many=True)
             return Response(serializer.data)
-        except Order.DoesNotExist:
-            return Response({'error': 'Order not found'}, status=404)
+
+
+
+
 
 class UpdateOrderStatusView(APIView):
     permission_classes = [IsAuthenticated]
@@ -215,4 +294,24 @@ class UpdateOrderStatusView(APIView):
         order.cancelled_by = cancelled_by
         order.save()
 
-        return Response({'message': 'Order cancelled successfully'})               
+        return Response({'message': 'Order cancelled successfully'})  
+
+
+class DeliveryBoyOrdersView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            delivery_boy = DeliveryBoy.objects.get(user=request.user)  # request.user.id = 35 होना चाहिए
+
+        except DeliveryBoy.DoesNotExist:
+            return Response({'error': 'Delivery boy not found'}, status=404)
+
+        status_filter = request.query_params.get('status')  # Optional: ?status=Delivered
+        if status_filter:
+            orders = Order.objects.filter(delivery_boy=delivery_boy, status=status_filter)
+        else:
+            orders = Order.objects.filter(delivery_boy=delivery_boy)
+
+        serializer = OrderSerializer(orders, many=True)
+        return Response(serializer.data)                     

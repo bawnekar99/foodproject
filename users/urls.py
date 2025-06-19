@@ -1,6 +1,6 @@
 from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
-from .views import RestaurantView, RestaurantDetailView, UploadRestaurantImagesView,SendUserOTPView,VerifyUserOTPView ,UpdateUserLocation ,UpdateUserProfile ,SendRestaurantOTPView ,VerifyRestaurantOTPView
+from .views import RestaurantView, RestaurantDetailView, UploadRestaurantImagesView,SendUserOTPView,VerifyUserOTPView ,UpdateUserLocation ,UpdateUserProfile ,SendRestaurantOTPView ,VerifyRestaurantOTPView,UserListViewWithCustomEncoder,UserDetailViewWithCustomEncoder
 urlpatterns = [
     # User-related URLs
     path('send-otp/', SendUserOTPView.as_view(), name='send_otp'),
@@ -8,6 +8,8 @@ urlpatterns = [
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('update-location/', UpdateUserLocation.as_view(), name='update_location'),
     path('update-profile/', UpdateUserProfile.as_view(), name='update_profile'),
+    path('user-list/', UserListViewWithCustomEncoder.as_view(), name='user-list'),
+    path('user/<str:user_id>/', UserDetailViewWithCustomEncoder.as_view(), name='user-detail'),  # Get or delete by ID
 
     # Restaurant-related URLs
     path('restaurant/send-otp/', SendRestaurantOTPView.as_view(), name='send_restaurant_otp'),

@@ -1,17 +1,22 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from djongo.models import ObjectIdField
-from bson import ObjectId
+
 from django.utils import timezone
 from datetime import timedelta
 from .managers import CustomUserManager
 from djongo.models.fields import ObjectIdField
-from django.contrib.auth.models import User
+
 from djongo import models as djongo_models
 from django.contrib.auth.models import BaseUserManager
 from decimal import Decimal
-from django.contrib.auth.models import User
+import logging
+from djongo import models
+from django.contrib.auth.models import AbstractUser
+from bson import ObjectId
 
+# Set up logging for debugging
+logger = logging.getLogger(__name__)
 
 
 class CustomUserManager(BaseUserManager):
@@ -34,7 +39,9 @@ class CustomUserManager(BaseUserManager):
         return self.create_user(phone, password, **extra_fields)
 
 
+
 class User(AbstractUser):
+    id = models.ObjectIdField(primary_key=True, default=ObjectId, editable=False)
     username = models.CharField(max_length=150, unique=True, blank=True, null=True)
     phone = models.CharField(max_length=15, unique=True)
     is_delivery_boy = models.BooleanField(default=False)
@@ -50,7 +57,7 @@ class User(AbstractUser):
     last_name = models.CharField(max_length=150, blank=True)
     birth_date = models.DateField(null=True, blank=True)
 
-    objects = CustomUserManager()
+   
 
     GENDER_CHOICES = [
         ('M', 'Male'),

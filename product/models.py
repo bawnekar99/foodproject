@@ -4,16 +4,72 @@ from djongo.models import ObjectIdField
 from bson import ObjectId
 from decimal import Decimal
 
+from users.models import Restaurant  
 from django.utils import timezone
 
 class Category(models.Model):
     id = ObjectIdField(primary_key=True, default=ObjectId, editable=False)
     name = models.CharField(max_length=100, unique=True)
     description = models.TextField(blank=True, null=True)
-    # image = models.ImageField(upload_to='category_images/', blank=True, null=True)
+    restaurant = models.ForeignKey(
+        "users.Restaurant",
+        on_delete=models.CASCADE,
+        related_name="categories",
+        help_text="The restaurant this category belongs to"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Indicates if the category is visible/active"
+    )
+    display_order = models.PositiveIntegerField(
+        default=0,
+        help_text="Order for displaying categories (lower appears first)"
+    )
+    dietary_type = models.CharField(
+        max_length=20,
+        choices=[
+            ('VEG', 'Vegetarian'),
+            ('NON_VEG', 'Non-Vegetarian'),
+            ('BOTH', 'Both')
+        ],
+        default='BOTH',
+        help_text="Dietary classification of the category"
+    )
+    image = models.ImageField(
+        upload_to='category_images/',
+        blank=True,
+        null=True,
+        help_text="Optional image for the category"
+    )
+    slug = models.SlugField(
+        max_length=100,
+        unique=True,
+        blank=True,
+        help_text="URL-friendly identifier for the category"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['display_order', 'name']
+        verbose_name = "Category"
+        verbose_name_plural = "Categories"
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        # Auto-generate slug from name if not provided
+        if not self.slug:
+            from django.utils.text import slugify
+            self.slug = slugify(self.name)
+            # Ensure slug uniqueness
+            original_slug = self.slug
+            counter = 1
+            while Category.objects.filter(slug=self.slug).exists():
+                self.slug = f"{original_slug}-{counter}"
+                counter += 1
+        super().save(*args, **kwargs)
 
 class CategoryImage(models.Model):
     id = ObjectIdField(primary_key=True, default=ObjectId, editable=False)

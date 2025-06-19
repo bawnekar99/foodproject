@@ -25,25 +25,26 @@ def server_status(request):
         }, status=500)
 
 def db_status(request):
+    from django.db import connection
+    import traceback
+    import logging
+
+    logger = logging.getLogger(__name__)
+
     try:
         db_backend = connection.settings_dict['ENGINE']
         logger.info(f"Database backend: {db_backend}")
 
         connection.ensure_connection()
 
-        # Table existence check
+        # More reliable way: Use Django's introspection
         table_check = False
         try:
-            if 'djongo' in db_backend:
-                from django.db import connections
-                mongo_db = connections['default'].connection
-                table_check = 'users_user' in mongo_db.list_collection_names()
-            else:
-                table_check = "backend not supported for table check"
+            table_list = connection.introspection.table_names()
+            table_check = 'users_user' in table_list
         except Exception as table_error:
             logger.warning(f"Table check failed: {str(table_error)}")
 
-        # Determine status based on table existence
         if table_check is True:
             status = True
             message = "Database connected successfully"

@@ -16,10 +16,13 @@ class DeliveryBoyProfileUpdateSerializer(serializers.ModelSerializer):
 
 
 
+import ast  # Safe way to parse stringified list
+
 class OrderSerializer(serializers.ModelSerializer):
     _id = serializers.SerializerMethodField()
     restaurant = serializers.SerializerMethodField()
     user = serializers.SerializerMethodField()
+    delivery_boy = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
@@ -33,6 +36,28 @@ class OrderSerializer(serializers.ModelSerializer):
 
     def get_user(self, obj):
         return str(obj.user.id) if obj.user else None
+
+    def get_delivery_boy(self, obj):
+        return str(obj.delivery_boy._id) if obj.delivery_boy else None
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+
+        # Safely parse the stringified 'items' if it's a string
+        raw_items = data.get('items')
+        if isinstance(raw_items, str):
+            try:
+                parsed_items = ast.literal_eval(raw_items)
+                data['items'] = parsed_items
+                # Convert product_id to str inside items
+                for item in parsed_items:
+                    if isinstance(item.get('product_id'), ObjectId):
+                        item['product_id'] = str(item['product_id'])
+            except Exception as e:
+                data['items'] = []  # fallback
+
+        return data
+
 
 class OrderStatusUpdateSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=[

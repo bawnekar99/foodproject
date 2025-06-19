@@ -10,15 +10,20 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 import os
-
-
 from datetime import timedelta
 from pathlib import Path
+import dotenv
+from dotenv import load_dotenv
+dotenv.load_dotenv()
+
+
+
+
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(BASE_DIR, '.env'))
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-pl$@62b*n(cml5-8un%3%u%84y96=u-8(%n%g0rji$koyojsue'
+SECRET_KEY = os.getenv('SECRET_KEY')
 
 
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
@@ -32,20 +37,17 @@ else:
     ALLOWED_HOSTS = ['localhost', '127.0.0.1']
 
 
-
-
-
-
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
-
 SIMPLE_JWT = {
+  
     'ACCESS_TOKEN_LIFETIME': timedelta(days=3650),  
     'REFRESH_TOKEN_LIFETIME': timedelta(days=3650),
     'ROTATE_REFRESH_TOKENS': False,
     'BLACKLIST_AFTER_ROTATION': False,
     'AUTH_HEADER_TYPES': ('Bearer',),
+    
 }
 
 INSTALLED_APPS = [
@@ -62,7 +64,9 @@ INSTALLED_APPS = [
     'product',
     'order',
 ]
+
 AUTH_USER_MODEL = 'users.User'
+
 
 
 
@@ -144,6 +148,27 @@ AUTH_PASSWORD_VALIDATORS = [
         'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
     },
 ]
+
+
+# LOGGING = {
+#     'version': 1,
+#     'disable_existing_loggers': False,
+#     'handlers': {
+#         'console': {
+#             'class': 'logging.StreamHandler',
+#         },
+#         'file': {
+#             'class': 'logging.FileHandler',
+#             'filename': 'debug.log',
+#         },
+#     },
+#     'loggers': {
+#         '': {
+#             'handlers': ['console', 'file'],
+#             'level': 'DEBUG',
+#         },
+#     },
+# }
 
 
 # Internationalization
