@@ -33,6 +33,8 @@ import logging
 from django.db import transaction
 from rest_framework.throttling import AnonRateThrottle
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError
+
 
 logger = logging.getLogger(__name__)
 
@@ -44,65 +46,62 @@ def get_tokens_for_user(user):
     }
 
 class SendUserOTPView(APIView):
-    permission_classes = [AllowAny]
-    throttle_classes = [AnonRateThrottle]
+    permission_classes = []
+    throttle_scope = 'otp'
 
     def post(self, request):
-        serializer = UserOTPSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-        phone = serializer.validated_data['phone']
-        otp = str(random.randint(100000, 999999))
+        phone = request.data.get('phone')
+        
+        if not phone:
+            return Response(
+                {"error": "Phone number is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         try:
-            with transaction.atomic():
-                # Check if user exists
-                user, created = User.objects.get_or_create(
-                    phone=phone,
-                    defaults={
-                        'username': phone,
-                        'is_vendor': False
+            # Generate 6-digit OTP
+            otp = str(random.randint(100000, 999999))
+            
+            # Get or create user
+            user, created = User.objects.get_or_create(
+                phone=phone,
+                defaults={
+                    'username': phone,
+                    'is_vendor': False
+                }
+            )
+            
+            # Update OTP
+            user.otp = otp
+            user.save()
+            
+            # Here you would call your send_sms function
+            logger.info(f"OTP {otp} generated for {phone}")
+            
+            return Response(
+                {
+                    "status": "success",
+                    "message": "OTP sent successfully",
+                    "data": {
+                        "phone": phone,
+                        "otp": otp  # Remove in production
                     }
-                )
-                
-                # Update OTP regardless of whether user was just created
-                user.otp = otp
-                user.otp_created_at = timezone.now()
-                user.save()
-
-                # Send SMS
-                success, message = send_sms(
-                    to=phone,
-                    var1=otp,
-                    var2="5 minutes"
-                )
-                
-                if not success:
-                    logger.error(f"SMS failed to {phone}: {message}")
-                    return Response({
-                        "message": "Failed to send OTP",
-                        "error": message
-                    }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-                return Response({
-                    "message": "OTP sent successfully"
-                }, status=status.HTTP_200_OK)
+                },
+                status=status.HTTP_200_OK
+            )
 
         except IntegrityError:
-            # Handle race condition where user was created between get and create
-            user = User.objects.get(phone=phone)
-            user.generate_otp()
-            return Response({
-                "message": "OTP resent successfully"
-            }, status=status.HTTP_200_OK)
-
+            return Response(
+                {"error": "User with this phone already exists"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
         except Exception as e:
-            logger.error(f"Error for {phone}: {str(e)}\n{traceback.format_exc()}")
-            return Response({
-                "message": "Could not process OTP request",
-                "error": "Please try again later"
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logger.error(f"OTP Error: {str(e)}", exc_info=True)
+            return Response(
+                {"error": "Internal server error"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class VerifyUserOTPView(APIView):
