@@ -50,20 +50,42 @@ class SendUserOTPView(APIView):
             otp = str(random.randint(100000, 999999))
 
             try:
-                user, created = User.objects.get_or_create(phone=phone, defaults={
-                    'is_vendor': False,
-                    'username': phone  # required since username is unique in AbstractUser
-                })
+                user, created = User.objects.get_or_create(
+                    phone=phone, 
+                    defaults={
+                        'is_vendor': False,
+                        'username': phone
+                    }
+                )
                 user.otp = otp
                 user.save()
 
-                print(f"[User OTP] {phone} -> {otp}")
-                return Response({"message": "OTP sent successfully"}, status=status.HTTP_200_OK)
+                # Send SMS
+                success, message = send_sms(
+                    to=phone,
+                    var1=otp,
+                    var2="5 minutes"  # OTP validity time
+                )
+                
+                if success:
+                    logger.info(f"OTP sent successfully to {phone}")
+                    return Response({
+                        "message": "OTP sent successfully",
+                        "otp": otp  # Remove this in production!
+                    }, status=status.HTTP_200_OK)
+                else:
+                    logger.error(f"Failed to send OTP to {phone}: {message}")
+                    return Response({
+                        "message": "Failed to send OTP",
+                        "error": message
+                    }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
             except Exception as e:
-                print("Database error:", str(e))
-                traceback.print_exc()
-                return Response({"message": "Database error", "error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                logger.error(f"Database error for {phone}: {str(e)}")
+                return Response({
+                    "message": "Database error", 
+                    "error": str(e)
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
