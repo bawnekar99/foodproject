@@ -1,8 +1,8 @@
 asgiref
-Django
+Django==4.2.16
 djangorestframework
 djangorestframework_simplejwt
-djongo
+djongo==1.3.6
 gunicorn
 packaging
 PyJWT
