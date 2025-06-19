@@ -30,6 +30,8 @@ from helpers.sms import send_sms
 from django.http import JsonResponse
 import json
 import logging
+from django.db import transaction
+from django.core.exceptions import ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -45,50 +47,60 @@ class SendUserOTPView(APIView):
 
     def post(self, request):
         serializer = UserOTPSerializer(data=request.data)
-        if serializer.is_valid():
-            phone = serializer.validated_data['phone']
-            otp = str(random.randint(100000, 999999))
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-            try:
-                user, created = User.objects.get_or_create(
-                    phone=phone, 
-                    defaults={
-                        'is_vendor': False,
-                        'username': phone
-                    }
-                )
-                user.otp = otp
-                user.save()
+        phone = serializer.validated_data['phone']
+        otp = str(random.randint(100000, 999999))
+
+        try:
+            with transaction.atomic():
+                # Try to get existing user first
+                try:
+                    user = User.objects.get(phone=phone)
+                    user.otp = otp
+                    user.save()
+                except User.DoesNotExist:
+                    # Create new user if doesn't exist
+                    user = User.objects.create_user(
+                        phone=phone,
+                        username=phone,
+                        otp=otp,
+                        is_vendor=False
+                    )
 
                 # Send SMS
                 success, message = send_sms(
                     to=phone,
                     var1=otp,
-                    var2="5 minutes"  # OTP validity time
+                    var2="5 minutes"
                 )
                 
-                if success:
-                    logger.info(f"OTP sent successfully to {phone}")
-                    return Response({
-                        "message": "OTP sent successfully",
-                        "otp": otp  # Remove this in production!
-                    }, status=status.HTTP_200_OK)
-                else:
-                    logger.error(f"Failed to send OTP to {phone}: {message}")
+                if not success:
+                    logger.error(f"SMS failed to {phone}: {message}")
                     return Response({
                         "message": "Failed to send OTP",
                         "error": message
                     }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-            except Exception as e:
-                logger.error(f"Database error for {phone}: {str(e)}")
+                logger.info(f"OTP sent to {phone}")
                 return Response({
-                    "message": "Database error", 
-                    "error": str(e)
-                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                    "message": "OTP sent successfully"
+                }, status=status.HTTP_200_OK)
 
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        except ValidationError as e:
+            logger.error(f"Validation error for {phone}: {str(e)}")
+            return Response({
+                "message": "Invalid phone number format",
+                "error": str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
 
+        except Exception as e:
+            logger.error(f"Error for {phone}: {str(e)}\n{traceback.format_exc()}")
+            return Response({
+                "message": "Could not process OTP request",
+                "error": "Please try again later"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class VerifyUserOTPView(APIView):
