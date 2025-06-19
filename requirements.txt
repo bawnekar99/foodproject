@@ -2,7 +2,7 @@ asgiref
 Django
 djangorestframework
 djangorestframework_simplejwt
-djongo-next
+djongo
 gunicorn
 packaging
 PyJWT
