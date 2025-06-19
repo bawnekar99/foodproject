@@ -28,7 +28,9 @@ SECRET_KEY = os.getenv('SECRET_KEY')
 
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
-
+# settings.py
+SMS_API_LINK = "https://2factor.in/API/R1/"
+SMS_API_KEY = "712f3a04-aa15-11ee-8cbb-0200cd936042"
 
 RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
 if RENDER_EXTERNAL_HOSTNAME:
