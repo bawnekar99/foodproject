@@ -76,10 +76,16 @@ class User(AbstractUser):
     USERNAME_FIELD = 'phone'
     REQUIRED_FIELDS = []
 
+    def generate_otp(self):
+        self.otp = str(random.randint(100000, 999999))
+        self.otp_created_at = timezone.now()
+        self.save()
+        return self.otp
+
     def __str__(self):
         return self.phone
 
-
+ 
 
 
 
