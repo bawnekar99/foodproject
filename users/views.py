@@ -31,6 +31,7 @@ from django.http import JsonResponse
 import json
 import logging
 from django.db import transaction
+from rest_framework.throttling import AnonRateThrottle
 from django.core.exceptions import ValidationError
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,7 @@ def get_tokens_for_user(user):
 
 class SendUserOTPView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [AnonRateThrottle]
 
     def post(self, request):
         serializer = UserOTPSerializer(data=request.data)
