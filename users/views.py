@@ -55,19 +55,19 @@ class SendUserOTPView(APIView):
 
         try:
             with transaction.atomic():
-                # Try to get existing user first
-                try:
-                    user = User.objects.get(phone=phone)
-                    user.otp = otp
-                    user.save()
-                except User.DoesNotExist:
-                    # Create new user if doesn't exist
-                    user = User.objects.create_user(
-                        phone=phone,
-                        username=phone,
-                        otp=otp,
-                        is_vendor=False
-                    )
+                # Check if user exists
+                user, created = User.objects.get_or_create(
+                    phone=phone,
+                    defaults={
+                        'username': phone,
+                        'is_vendor': False
+                    }
+                )
+                
+                # Update OTP regardless of whether user was just created
+                user.otp = otp
+                user.otp_created_at = timezone.now()
+                user.save()
 
                 # Send SMS
                 success, message = send_sms(
@@ -83,17 +83,17 @@ class SendUserOTPView(APIView):
                         "error": message
                     }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-                logger.info(f"OTP sent to {phone}")
                 return Response({
                     "message": "OTP sent successfully"
                 }, status=status.HTTP_200_OK)
 
-        except ValidationError as e:
-            logger.error(f"Validation error for {phone}: {str(e)}")
+        except IntegrityError:
+            # Handle race condition where user was created between get and create
+            user = User.objects.get(phone=phone)
+            user.generate_otp()
             return Response({
-                "message": "Invalid phone number format",
-                "error": str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
+                "message": "OTP resent successfully"
+            }, status=status.HTTP_200_OK)
 
         except Exception as e:
             logger.error(f"Error for {phone}: {str(e)}\n{traceback.format_exc()}")
