@@ -1,5 +1,14 @@
+import random
 import os
 import requests
+import logging
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from django.db import IntegrityError
+from django.contrib.auth.models import User
+
+logger = logging.getLogger(__name__)
 
 def send_sms(to, var1, var2):
     try:
@@ -10,8 +19,8 @@ def send_sms(to, var1, var2):
             "module": "TRANS_SMS",
             "apikey": api_key,
             "to": to,
-            "from": "FEMIRI",  # 🔁 Replace with your actual DLT sender ID
-            "templatename": "OTP@",  # 🔁 Replace with your actual template name
+            "from": "FEMIRI",  # Replace with your actual DLT sender ID
+            "templatename": "OTP@",  # Replace with your actual template name
             "var1": var1,
             "var2": var2
         }
