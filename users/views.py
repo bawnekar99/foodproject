@@ -75,20 +75,32 @@ class SendUserOTPView(APIView):
             user.otp = otp
             user.save()
             
-            # Here you would call your send_sms function
-            logger.info(f"OTP {otp} generated for {phone}")
-            
-            return Response(
-                {
-                    "status": "success",
-                    "message": "OTP sent successfully",
-                    "data": {
-                        "phone": phone,
-                        "otp": otp  # Remove in production
-                    }
-                },
-                status=status.HTTP_200_OK
+            # Send OTP via SMS
+            sms_response = send_sms(
+                to=phone,
+                var1=otp,
+                var2=""  # var2 is optional, leave empty if not needed
             )
+            
+            if sms_response["status"]:
+                logger.info(f"OTP {otp} sent successfully to {phone}")
+                return Response(
+                    {
+                        "status": "success",
+                        "message": "OTP sent successfully",
+                        "data": {
+                            "phone": phone,
+                            # "otp": otp  # Remove in production
+                        }
+                    },
+                    status=status.HTTP_200_OK
+                )
+            else:
+                logger.error(f"SMS Failed: {sms_response['error']}")
+                return Response(
+                    {"error": f"Failed to send OTP: {sms_response['error']}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
 
         except IntegrityError:
             return Response(
