@@ -30,6 +30,11 @@ from helpers.sms import send_sms
 from django.http import JsonResponse
 import json
 import logging
+from django.db import transaction
+from rest_framework.throttling import AnonRateThrottle
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError
+
 
 logger = logging.getLogger(__name__)
 
@@ -109,9 +114,6 @@ class SendUserOTPView(APIView):
                 {"error": "Internal server error"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-
-
-
 
 class VerifyUserOTPView(APIView):
     permission_classes = [AllowAny]
