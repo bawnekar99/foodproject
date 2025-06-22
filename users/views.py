@@ -51,37 +51,47 @@ class SendUserOTPView(APIView):
 
     def post(self, request):
         phone = request.data.get('phone')
-        
+        logger.debug(f"Received OTP request for phone: {phone}")
+
         if not phone:
+            logger.warning("Phone number missing in request")
             return Response(
                 {"error": "Phone number is required"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         try:
+            # Validate phone number format (basic check)
+            if not phone.isdigit() or len(phone) != 10:
+                logger.warning(f"Invalid phone number format: {phone}")
+                return Response(
+                    {"error": "Invalid phone number format. Must be 10 digits."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
             # Generate 6-digit OTP
             otp = str(random.randint(100000, 999999))
-            
+            logger.debug(f"Generated OTP: {otp}")
+
             # Get or create user
             user, created = User.objects.get_or_create(
-                phone=phone,
+                username=phone,  # Changed from phone field to username
                 defaults={
                     'username': phone,
                     'is_vendor': False
                 }
             )
-            
-            # Update OTP
+            logger.debug(f"User: {user.username}, Created: {created}")
+
+            # Update OTP (assuming User model has otp field)
             user.otp = otp
             user.save()
-            
+            logger.debug(f"Updated OTP for user: {user.username}")
+
             # Send OTP via SMS
-            sms_response = send_sms(
-                to=phone,
-                var1=otp,
-                var2=""  # var2 is optional, leave empty if not needed
-            )
-            
+            sms_response = send_sms(to=phone, var1=otp, var2="")
+            logger.debug(f"SMS Response: {sms_response}")
+
             if sms_response["status"]:
                 logger.info(f"OTP {otp} sent successfully to {phone}")
                 return Response(
@@ -102,16 +112,16 @@ class SendUserOTPView(APIView):
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
 
-        except IntegrityError:
+        except IntegrityError as e:
+            logger.error(f"IntegrityError: {str(e)}", exc_info=True)
             return Response(
                 {"error": "User with this phone already exists"},
                 status=status.HTTP_400_BAD_REQUEST
             )
-            
         except Exception as e:
             logger.error(f"OTP Error: {str(e)}", exc_info=True)
             return Response(
-                {"error": "Internal server error"},
+                {"error": f"Internal server error: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
