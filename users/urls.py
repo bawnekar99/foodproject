@@ -3,7 +3,7 @@ from rest_framework_simplejwt.views import TokenRefreshView
 from .views import RestaurantView, RestaurantDetailView, UploadRestaurantImagesView,SendUserOTPView,VerifyUserOTPView ,UpdateUserLocation ,UpdateUserProfile ,SendRestaurantOTPView ,VerifyRestaurantOTPView,UserListViewWithCustomEncoder,UserDetailViewWithCustomEncoder
 urlpatterns = [
     # User-related URLs
-    path('send-otp/', SendUserOTPView.as_view(), name='send_otp'),
+    path('send-otp/', SendUserOTPView.as_view(), name='send-otp'),
     path('verify-otp/', VerifyUserOTPView.as_view(), name='verify_otp'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('update-location/', UpdateUserLocation.as_view(), name='update_location'),
