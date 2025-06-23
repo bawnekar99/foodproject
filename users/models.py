@@ -79,7 +79,7 @@ class User(AbstractUser):
     objects = CustomUserManager()
 
     class Meta:
-        db_table = 'users_user' 
+        db_table = 'auth_user' 
 
     USERNAME_FIELD = 'phone'
     REQUIRED_FIELDS = []

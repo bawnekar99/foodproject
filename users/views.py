@@ -59,66 +59,63 @@ class SendUserOTPView(APIView):
         phone = str(request.data.get('phone', '')).strip()
         logger.info(f"Processing OTP for: {phone}")
 
-        # फोन वैलिडेशन
+        # Phone validation
         if not phone.isdigit() or len(phone) != 10:
             return Response(
                 {"error": "Invalid phone number. Must be 10 digits."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # OTP जनरेट करें
+        # Generate OTP
         otp = str(random.randint(100000, 999999))
         logger.info(f"Generated OTP: {otp}")
 
-        # पहले SMS भेजें
-        sms_response = send_sms(to=phone, var1=otp, var2="")
-        if not sms_response.get("status"):
-            return Response(
-                {"error": "Failed to send OTP"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-        # डेटाबेस ऑपरेशन
         try:
-            # पहले यूजर को ढूंढने का प्रयास करें
+            # Try to get existing user
             try:
                 user = User.objects.get(phone=phone)
                 user.otp = otp
-                user.save()
-                logger.info(f"Updated existing user: {phone}")
+                user.save(update_fields=['otp'])
+                logger.info(f"Updated OTP for existing user: {phone}")
             except User.DoesNotExist:
-                # नया यूजर बनाएं
+                # Create new user if doesn't exist
                 try:
                     user = User.objects.create_user(
                         phone=phone,
-                        username=phone,  # यूजरनेम भी सेट करें
+                        username=phone,  # Using phone as username
                         otp=otp,
-                        password=None  # पासवर्ड जरूरी नहीं
+                        password=None   # Password not required for OTP flow
                     )
-                    logger.info(f"Created new user: {phone}")
-                except Exception as e:
-                    logger.error(f"User creation failed for {phone}: {str(e)}")
-                    # SMS भेज दी गई है, तो वार्निंग के साथ सक्सेस रिस्पॉन्स दें
-                    return Response({
-                        "status": "success",
-                        "message": "OTP sent but user not saved",
-                        "phone": phone,
-                        "warning": str(e)
-                    }, status=status.HTTP_200_OK)
+                    logger.info(f"Created new user with OTP: {phone}")
+                except IntegrityError as e:
+                    logger.error(f"Integrity error creating user {phone}: {str(e)}")
+                    return Response(
+                        {"error": "User creation failed due to database constraints"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+            # Only send SMS after successful database operation
+            sms_response = send_sms(to=phone, var1=otp, var2="")
+            if not sms_response.get("status"):
+                logger.error(f"SMS failed for {phone}: {sms_response.get('error')}")
+                return Response(
+                    {"error": "Failed to send OTP"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
 
             return Response({
                 "status": "success",
                 "message": "OTP sent successfully",
-                "phone": phone
+                "phone": phone,
+                "otp": otp  # Include OTP in the response
             })
 
         except Exception as e:
-            logger.exception(f"Critical error for {phone}")
+            logger.exception(f"Critical error for {phone}: {str(e)}")
             return Response(
-                {"error": f"System error: {str(e)}"},
+                {"error": "System error processing your request"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-
 
 
 class VerifyUserOTPView(APIView):
