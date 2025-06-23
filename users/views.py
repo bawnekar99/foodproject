@@ -52,7 +52,7 @@ def get_tokens_for_user(user):
 
 
 class SendUserOTPView(APIView):
-    permission_classes = []
+    permission_classes = [AllowAny]
     throttle_scope = 'otp'
 
     def post(self, request):
@@ -173,6 +173,7 @@ class UpdateUserProfile(APIView):
             serializer.save()
             return Response({"message": "Profile updated", "user": serializer.data}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
                                                  
 class ObjectIdJSONEncoder(json.JSONEncoder):
     """Custom JSON encoder jo ObjectId ko string me convert karta hai"""
