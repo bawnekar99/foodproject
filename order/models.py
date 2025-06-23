@@ -11,7 +11,7 @@ class DeliveryBoy(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='delivery_boy', null=True, blank=True)
     # Basic Info
     name = models.CharField(max_length=100, null=True, blank=True)
-    email = models.EmailField(unique=True, null=True, blank=True)
+    email = models.EmailField( null=True, blank=True)
     phone = models.CharField(max_length=15, unique=True)
     date_of_birth = models.DateField(null=True, blank=True)
     

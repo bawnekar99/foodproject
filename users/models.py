@@ -17,21 +17,26 @@ from bson import ObjectId
 
 # Set up logging for debugging
 logger = logging.getLogger(__name__)
-
+from django.contrib.auth.base_user import BaseUserManager
 
 class CustomUserManager(BaseUserManager):
     def create_user(self, phone, password=None, **extra_fields):
         if not phone:
             raise ValueError("Phone number is required")
-        extra_fields.setdefault('username', phone)    
-        user = self.model(phone=phone, **extra_fields)
+        
+        user = self.model(
+            phone=phone,
+            username=phone,  # Set username same as phone
+            **extra_fields
+        )
+        
         if password:
             user.set_password(password)
         else:
             user.set_unusable_password()
+            
         user.save(using=self._db)
         return user
-
 
     def create_superuser(self, phone, password=None, **extra_fields):
         extra_fields.setdefault('is_staff', True)
@@ -71,10 +76,15 @@ class User(AbstractUser):
     city = models.CharField(max_length=100, null=True, blank=True)
     website = models.URLField(null=True, blank=True)
     
-    objects = CustomUserManager()  
+    objects = CustomUserManager()
+
+    class Meta:
+        db_table = 'users_user' 
 
     USERNAME_FIELD = 'phone'
     REQUIRED_FIELDS = []
+
+     
 
     def generate_otp(self):
         self.otp = str(random.randint(100000, 999999))

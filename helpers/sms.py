@@ -41,9 +41,8 @@ def send_sms(to, var1, var2):
         return {"status": False, "error": result.get("Details", "Unknown error from SMS API")}
 
     except Exception as e:
-        error_msg = f"SMS sending failed: {str(e)}"
-        logger.error(error_msg, exc_info=True)
-        return {"status": False, "error": error_msg}
+        return {"status": False, "error": str(e)}
+
 
 
 
