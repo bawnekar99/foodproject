@@ -12,8 +12,6 @@ from django.utils import timezone
 from .models import Restaurant, User, RestaurantImage
 from rest_framework import permissions
 from django.shortcuts import get_object_or_404
-# Keep all existing imports and add any missing ones
-
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from .serializers import (
     UserOTPSerializer, UserOTPVerifySerializer, UserLocationSerializer, 
@@ -34,6 +32,11 @@ from django.db import transaction
 from rest_framework.throttling import AnonRateThrottle
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
+from django.contrib.auth import get_user_model
+from django.db import IntegrityError, DatabaseError
+
+logger = logging.getLogger(__name__)
+User = get_user_model()
 
 
 logger = logging.getLogger(__name__)
@@ -45,83 +48,74 @@ def get_tokens_for_user(user):
         'access': str(refresh.access_token),
     }
 
+
+
+
 class SendUserOTPView(APIView):
     permission_classes = []
     throttle_scope = 'otp'
 
     def post(self, request):
-        phone = request.data.get('phone')
-        logger.debug(f"Received OTP request for phone: {phone}")
+        phone = str(request.data.get('phone', '')).strip()
+        logger.info(f"Processing OTP for: {phone}")
 
-        if not phone:
-            logger.warning("Phone number missing in request")
+        # फोन वैलिडेशन
+        if not phone.isdigit() or len(phone) != 10:
             return Response(
-                {"error": "Phone number is required"},
+                {"error": "Invalid phone number. Must be 10 digits."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # OTP जनरेट करें
+        otp = str(random.randint(100000, 999999))
+        logger.info(f"Generated OTP: {otp}")
+
+        # पहले SMS भेजें
+        sms_response = send_sms(to=phone, var1=otp, var2="")
+        if not sms_response.get("status"):
+            return Response(
+                {"error": "Failed to send OTP"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        # डेटाबेस ऑपरेशन
         try:
-            # Validate phone number format (basic check)
-            if not phone.isdigit() or len(phone) != 10:
-                logger.warning(f"Invalid phone number format: {phone}")
-                return Response(
-                    {"error": "Invalid phone number format. Must be 10 digits."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            # Generate 6-digit OTP
-            otp = str(random.randint(100000, 999999))
-            logger.debug(f"Generated OTP: {otp}")
-
-            # Get or create user
-            user, created = User.objects.get_or_create(
-                username=phone,  # Changed from phone field to username
-                defaults={
-                    'username': phone,
-                    'is_vendor': False
-                }
-            )
-            logger.debug(f"User: {user.username}, Created: {created}")
-
-            # Update OTP (assuming User model has otp field)
-            user.otp = otp
-            user.save()
-            logger.debug(f"Updated OTP for user: {user.username}")
-
-            # Send OTP via SMS
-            sms_response = send_sms(to=phone, var1=otp, var2="")
-            logger.debug(f"SMS Response: {sms_response}")
-
-            if sms_response["status"]:
-                logger.info(f"OTP {otp} sent successfully to {phone}")
-                return Response(
-                    {
+            # पहले यूजर को ढूंढने का प्रयास करें
+            try:
+                user = User.objects.get(phone=phone)
+                user.otp = otp
+                user.save()
+                logger.info(f"Updated existing user: {phone}")
+            except User.DoesNotExist:
+                # नया यूजर बनाएं
+                try:
+                    user = User.objects.create_user(
+                        phone=phone,
+                        username=phone,  # यूजरनेम भी सेट करें
+                        otp=otp,
+                        password=None  # पासवर्ड जरूरी नहीं
+                    )
+                    logger.info(f"Created new user: {phone}")
+                except Exception as e:
+                    logger.error(f"User creation failed for {phone}: {str(e)}")
+                    # SMS भेज दी गई है, तो वार्निंग के साथ सक्सेस रिस्पॉन्स दें
+                    return Response({
                         "status": "success",
-                        "message": "OTP sent successfully",
-                        "data": {
-                            "phone": phone,
-                            # "otp": otp  # Remove in production
-                        }
-                    },
-                    status=status.HTTP_200_OK
-                )
-            else:
-                logger.error(f"SMS Failed: {sms_response['error']}")
-                return Response(
-                    {"error": f"Failed to send OTP: {sms_response['error']}"},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
+                        "message": "OTP sent but user not saved",
+                        "phone": phone,
+                        "warning": str(e)
+                    }, status=status.HTTP_200_OK)
 
-        except IntegrityError as e:
-            logger.error(f"IntegrityError: {str(e)}", exc_info=True)
-            return Response(
-                {"error": "User with this phone already exists"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({
+                "status": "success",
+                "message": "OTP sent successfully",
+                "phone": phone
+            })
+
         except Exception as e:
-            logger.error(f"OTP Error: {str(e)}", exc_info=True)
+            logger.exception(f"Critical error for {phone}")
             return Response(
-                {"error": f"Internal server error: {str(e)}"},
+                {"error": f"System error: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
