@@ -168,11 +168,27 @@ class UpdateUserProfile(APIView):
     permission_classes = [IsAuthenticated]
 
     def put(self, request):
-        serializer = UserProfileUpdateSerializerSimple(request.user, data=request.data, partial=True)
-        if serializer.is_valid():
-            serializer.save()
-            return Response({"message": "Profile updated", "user": serializer.data}, status=status.HTTP_200_OK)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            user = request.user
+            if not user.is_authenticated:
+                return Response(
+                    {"detail": "Authentication credentials were not provided."},
+                    status=status.HTTP_401_UNAUTHORIZED
+                )
+
+            serializer = UserProfileUpdateSerializerSimple(user, data=request.data, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                return Response({
+                    "message": "Profile updated", 
+                    "user": serializer.data
+                }, status=status.HTTP_200_OK)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response(
+                {"detail": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
                                                  
 class ObjectIdJSONEncoder(json.JSONEncoder):
     """Custom JSON encoder jo ObjectId ko string me convert karta hai"""

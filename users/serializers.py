@@ -75,12 +75,12 @@ class UserProfileUpdateSerializerSimple(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            'id', '_id', 'username', 'email', 'first_name', 'last_name', 'phone',
+            'id', 'username', 'email', 'first_name', 'last_name', 'phone',
             'latitude', 'longitude', 'address', 'profile_pic', 'birth_date',
             'gender', 'bio', 'country', 'city', 'website', 'otp',
             'is_vendor', 'is_active', 'is_staff'
         ]
-        read_only_fields = ['id', '_id', 'is_active', 'is_staff', 'otp', 'is_vendor']
+        read_only_fields = ['id','is_active', 'is_staff', 'otp', 'is_vendor']
     
     def get__id(self, obj):
         """Convert integer ID to ObjectId-like string"""
