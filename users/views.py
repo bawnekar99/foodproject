@@ -25,7 +25,8 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from decimal import Decimal, InvalidOperation
 from django.shortcuts import get_object_or_404
 from helpers.sms import send_sms
-from django.http import JsonResponse
+from rest_framework.authentication import TokenAuthentication
+from rest_framework_simplejwt.authentication import JWTAuthentication
 import json
 import logging
 from django.db import transaction
@@ -50,6 +51,25 @@ def get_tokens_for_user(user):
 
 
 
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework import status
+import random
+import logging
+import traceback
+from django.db import IntegrityError
+from bson import ObjectId  # Import for MongoDB ObjectId handling
+
+logger = logging.getLogger(__name__)
+
+# Custom JSON serializer for ObjectId
+def serialize_objectid(obj):
+    """Convert ObjectId to string for JSON serialization"""
+    if isinstance(obj, ObjectId):
+        return str(obj)
+    return obj
 
 class SendUserOTPView(APIView):
     permission_classes = [AllowAny]
@@ -82,9 +102,9 @@ class SendUserOTPView(APIView):
                 try:
                     user = User.objects.create_user(
                         phone=phone,
-                        username=phone,  # Using phone as username
+                        username=phone,
                         otp=otp,
-                        password=None   # Password not required for OTP flow
+                        password=None
                     )
                     logger.info(f"Created new user with OTP: {phone}")
                 except IntegrityError as e:
@@ -94,7 +114,7 @@ class SendUserOTPView(APIView):
                         status=status.HTTP_400_BAD_REQUEST
                     )
 
-            # Only send SMS after successful database operation
+            # Send SMS
             sms_response = send_sms(to=phone, var1=otp, var2="")
             if not sms_response.get("status"):
                 logger.error(f"SMS failed for {phone}: {sms_response.get('error')}")
@@ -107,7 +127,7 @@ class SendUserOTPView(APIView):
                 "status": "success",
                 "message": "OTP sent successfully",
                 "phone": phone,
-                "otp": otp  # Include OTP in the response
+                "otp": otp  # Remove in production
             })
 
         except Exception as e:
@@ -128,7 +148,6 @@ class VerifyUserOTPView(APIView):
             otp = serializer.validated_data['otp']
 
             try:
-                # Just fetch by phone, no extra filters for debugging
                 user = User.objects.filter(phone=phone).first()
                 if not user:
                     return Response({"error": "User not found"}, status=status.HTTP_400_BAD_REQUEST)
@@ -136,14 +155,23 @@ class VerifyUserOTPView(APIView):
                 if user.otp == otp:
                     user.otp = None
                     user.save()
+                    
+                    # Get tokens
                     tokens = get_tokens_for_user(user)
+                    
+                    # Convert ObjectId to string if present
+                    user_id = serialize_objectid(user.id) if hasattr(user, 'id') else user.pk
+                    
                     return Response({
                         "message": "OTP verified",
                         "access": tokens['access'],
                         "refresh": tokens['refresh'],
+                        "user_id": user_id,  # Now safely serializable
+                        "phone": user.phone
                     }, status=status.HTTP_200_OK)
                 else:
                     return Response({"error": "Invalid OTP"}, status=status.HTTP_400_BAD_REQUEST)
+                    
             except Exception as e:
                 print("DB error:", e)
                 traceback.print_exc()
@@ -154,26 +182,81 @@ class VerifyUserOTPView(APIView):
 
 class UpdateUserLocation(APIView):
     permission_classes = [IsAuthenticated]
-
+    
     def post(self, request):
-        serializer = UserLocationSerializer(data=request.data)
-        if serializer.is_valid():
-            request.user.latitude = serializer.validated_data['latitude']
-            request.user.longitude = serializer.validated_data['longitude']
-            request.user.save()
-            return Response({"message": "Location updated"}, status=status.HTTP_200_OK)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            user = request.user
+            
+            # Verify user exists in database
+            if not User.objects.filter(id=user.id).exists():
+                return Response(
+                    {"detail": "User not found", "code": "user_not_found"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+                
+            serializer = UserLocationSerializer(data=request.data)
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+                
+            user.latitude = serializer.validated_data['latitude']
+            user.longitude = serializer.validated_data['longitude']
+            user.save()
+            
+            return Response({
+                "message": "Location updated successfully",
+                "user_id": str(user.id)  # Convert ObjectId to string
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error updating location for user {request.user.id}: {str(e)}")
+            return Response(
+                {"error": "Failed to update location"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 
 class UpdateUserProfile(APIView):
     permission_classes = [IsAuthenticated]
-
+    
     def put(self, request):
-        serializer = UserProfileUpdateSerializerSimple(request.user, data=request.data, partial=True)
-        if serializer.is_valid():
+        try:
+            user = request.user
+            
+            # Verify user exists
+            if not User.objects.filter(id=user.id).exists():
+                return Response(
+                    {"detail": "User not found", "code": "user_not_found"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+                
+            serializer = UserProfileUpdateSerializerSimple(
+                user,
+                data=request.data,
+                partial=True
+            )
+            
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+                
             serializer.save()
-            return Response({"message": "Profile updated", "user": serializer.data}, status=status.HTTP_200_OK)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
+            
+            response_data = {
+                "message": "Profile updated successfully",
+                "user": serializer.data
+            }
+            
+            # Ensure ObjectId is properly serialized
+            if 'id' in response_data['user']:
+                response_data['user']['id'] = str(response_data['user']['id'])
+                
+            return Response(response_data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error updating profile for user {request.user.id}: {str(e)}")
+            return Response(
+                {"error": "Failed to update profile"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
                                                  
 class ObjectIdJSONEncoder(json.JSONEncoder):
     """Custom JSON encoder jo ObjectId ko string me convert karta hai"""
@@ -325,8 +408,14 @@ class SendRestaurantOTPView(APIView):
         restaurant.is_verified = False
         restaurant.save(update_fields=["otp", "otp_created_at", "is_verified"])
 
+        # Print to console (for debugging)
         print(f"[Restaurant OTP] {phone}: {otp}")
-        return Response({"message": "OTP sent successfully"}, status=status.HTTP_200_OK)
+        
+        # Return response with OTP (remove in production)
+        return Response({
+            "message": "OTP sent successfully",
+            "otp": otp  # Include OTP in response for development
+        }, status=status.HTTP_200_OK)
 
 
 

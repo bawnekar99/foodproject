@@ -20,28 +20,20 @@ logger = logging.getLogger(__name__)
 from django.contrib.auth.base_user import BaseUserManager
 
 class CustomUserManager(BaseUserManager):
-    def create_user(self, phone, password=None, **extra_fields):
+    def create_user(self, phone, username=None, password=None, **extra_fields):
         if not phone:
-            raise ValueError("Phone number is required")
-        
-        user = self.model(
-            phone=phone,
-            username=phone,  # Set username same as phone
-            **extra_fields
-        )
-        
-        if password:
-            user.set_password(password)
-        else:
-            user.set_unusable_password()
-            
+            raise ValueError('Phone number is required')
+        user = self.model(phone=phone, username=username or phone, **extra_fields)
+        user.set_password(password or self.make_random_password())  # dummy password
+        user.is_active = True
         user.save(using=self._db)
         return user
 
-    def create_superuser(self, phone, password=None, **extra_fields):
+    def create_superuser(self, phone, username=None, password=None, **extra_fields):
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
-        return self.create_user(phone, password, **extra_fields)
+        return self.create_user(phone, username, password, **extra_fields)
+
 
 
 
@@ -56,12 +48,12 @@ class User(AbstractUser):
     longitude = models.FloatField(null=True, blank=True)
     address = models.TextField(null=True, blank=True)
     profile_pic = models.ImageField(upload_to='user_profiles/', null=True, blank=True)
-
-    # Added fields only:
+# Added fields only:
     first_name = models.CharField(max_length=30, blank=True)
     last_name = models.CharField(max_length=150, blank=True)
     birth_date = models.DateField(null=True, blank=True)
-
+    is_active = models.BooleanField(default=True)
+    is_staff = models.BooleanField(default=False)
    
 
     GENDER_CHOICES = [

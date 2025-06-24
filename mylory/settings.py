@@ -53,14 +53,21 @@ INSTALLED_APPS = [
 
 AUTH_USER_MODEL = 'users.User'
 
+AUTHENTICATION_BACKENDS = [
+    'yourapp.authentication.MongoDBAuthBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.AllowAny',
+        'rest_framework.permissions.AllowAny',  # ✅ allows public OTP access
     ],
-     
+    #    'DEFAULT_PERMISSION_CLASSES': (
+    #     'rest_framework.permissions.IsAuthenticated',
+    # ),
 }
 
 MIDDLEWARE = [
